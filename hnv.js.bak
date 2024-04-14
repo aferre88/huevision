@@ -1,0 +1,127 @@
+'use strict';
+
+const v3 = require('node-hue-api').v3,
+    discovery = require('node-hue-api').discovery,
+    hueApi = require('node-hue-api').api,
+    ApiError = require('node-hue-api').ApiError,
+    config = require('./config/config'),
+    nconf = require('nconf'),
+    async = require('async');
+
+nconf.argv()
+    .env()
+    .file({ file: 'config/config.json' });
+
+async function discoverBridge() {
+    try {
+        const bridges = await discovery.nupnpSearch();
+        if (bridges.length === 0) {
+            throw new Error("No Hue Bridges were detected in the network");
+         }
+         return bridges[0]; // Support to multiple bridges might come in the future if requested
+    } catch (err) {
+        console.error(`Failure with n-UPnP search: ${err.message}`)
+        process.exit(-1);
+    }
+}
+
+function printIP() {
+    const bridge = discoverBridge().then(function(bridge) { console.log(bridge)});
+    //console.log(bridge);
+}
+
+async function printIP2() {
+    const bridge = await discoverBridge();
+    console.log(bridge);
+}
+
+async function registerBridge() {
+    const bridge = await discoverBridge();
+    const unauthenticatedApi = await hueApi.createLocal(bridge.ipaddress).connect();
+
+    try {
+        //console.log(config.appName + ' ... ' + config.deviceName);
+        let counter = 0, user;
+        //user = await unauthenticatedApi.users.createUser(config.appName, config.deviceName);
+        await async.retry(
+            {
+                times: 30,
+                interval: 1000/*,
+                errorFilter: function (err) {
+                    return err instanceof ApiError && err.getHueErrorType() === 101;
+                }*/
+            },
+             async function(callback) {
+                //console.log(callback.toString());
+                counter += 1;
+                let userPromise = unauthenticatedApi.users.createUser(config.appName, config.deviceName)
+                    .then(resultado => callback(false, resultado) )
+                    .catch(err => function (err) {
+                        if (err instanceof ApiError && err.getHueErrorType() === 101) {
+                            console.log('Please, press the Hue button to allow the connection. Attempt ' + counter + ' of 30.');
+                            callback(err, false);
+                        } else if (err || !resultado) {
+                            console.error(`Unexpected Error: ${err.message}`);
+                            process.exit(-1);
+                        } else {
+                            user = resultado;
+                        }
+                    }).finally(() => { console.log('Finally!'); });
+                user = await userPromise;
+                console.log(user);
+             },
+            function(err, user) {
+                if(err) {
+                    if (err instanceof ApiError) {
+                        if (err.getHueErrorType() === 101) {
+                            console.error('The Link button on the bridge was not pressed in time. Please press the Link button and try again.');
+                        } else {
+                            console.error(`Unexpected Hue Error: ${err.message}`);
+                        }
+                    } else {
+                        console.error(`Unexpected Hue Error: ${err.message}`);
+                    }
+                    process.exit(-1);
+                }
+            }
+            );
+        await sleep(2000);
+        console.log(user);
+        console.log('2');
+        user = await user;
+        console.log(user.username);
+        nconf.set('bridge:ipaddress', bridge.ipaddress);
+        nconf.set('bridge:username', user.username);
+        nconf.set('bridge:clientkey', user.clientkey);
+
+        nconf.save();
+    } catch(err) {
+        if (err instanceof ApiError) {
+            if (err.getHueErrorType() === 101) {
+                console.error('The Link button on the bridge was not pressed. Please press the Link button and try again.');
+            } else {
+                console.error(`Unexpected Hue Error: ${err.message}`);
+            }
+        } else {
+            console.error(`Unexpected Error: ${err.message}`);
+        }
+        process.exit(-1);
+    }
+}
+function sleep(millis) {
+    return new Promise(resolve => setTimeout(resolve, millis));
+}
+
+function startup() {
+    if (nconf.get('bridge')) {
+        registerBridge();
+    } else {
+        console.log('There is no previous bridge configuration, auto-discovering bridge...');
+        registerBridge();
+    }
+}
+
+startup();
+//console.log(discoverBridge());
+//printIP2();
+//printIP();

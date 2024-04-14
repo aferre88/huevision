@@ -1,0 +1,18 @@
+{
+  "name": "huenodevision",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "async-await-retry": "^1.2.1",
+    "nconf": "^0.11.2",
+    "node-fetch": "^2.6.1",
+    "node-hue-api": "^5.0.0-beta.2"
+  }
+}
